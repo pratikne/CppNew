@@ -1,0 +1,161 @@
+T H R E A D SYNCHRONIZATION
+
+*threads can use to synchronize their actions: mutexes and condition variables
+
+------------------------------------------------------------------------------------------
+
+MUTUAL EXCLUSION
+*Mutexes allow threads to synchronize their use of a shared resource, so that, for example, one thread doesn’t try to access a shared variable at the same time as another thread is modifying it. 
+
+*Condition variables perform a complementary task: they allow threads to inform each other that a shared variable (or other shared resource) has changed state.
+
+*The term critical section is used to refer to a section of code that accesses a shared resource and whose execution should be atomic; that is, its execution should not be interrupted by another thread that simultaneously accesses the same shared resource.
+
+*To avoid the problems that can occur when threads try to update a shared variable, we must use a mutex (short for mutual exclusion) to ensure that only one thread at a time can access the variable.
+
+*A mutex has two states: locked and unlocked. At any moment, at most one
+thread may hold the lock on a mutex. Attempting to lock a mutex that is already
+locked either blocks or fails with an error, depending on the method used to place
+the lock.
+
+*When a thread locks a mutex, it becomes the owner of that mutex. Only the
+mutex owner can unlock the mutex. This property improves the structure of code
+that uses mutexes and also allows for some optimizations in the implementation of
+mutexes. Because of this ownership property, the terms acquire and release are
+sometimes used synonymously for lock and unlock.
+
+􀁺 lock the mutex for the shared resource
+􀁺 access the shared resource
+􀁺 unlock the mutex.
+
+*If multiple threads try to execute this block of code (a critical section), the fact that
+only one thread can hold the mutex (the others remain blocked) means that only
+one thread at a time can enter the block
+
+*A mutex is a variable of the type pthread_mutex_t. Before it can be used, a
+mutex must always be initialized. For a statically allocated mutex, we can do this by
+assigning it the value PTHREAD_MUTEX_INITIALIZER, as in the following example:
+
+pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+
+*After initialization, a mutex is unlocked. To lock and unlock a mutex, we use the
+pthread_mutex_lock() and pthread_mutex_unlock() functions.
+
+#include <pthread.h>
+    int pthread_mutex_lock(pthread_mutex_t *mutex);
+    int pthread_mutex_unlock(pthread_mutex_t *mutex);
+        //Both return 0 on success, or a positive error number on error
+
+*To lock a mutex, we specify the mutex in a call to pthread_mutex_lock(). If the mutex
+is currently unlocked, this call locks the mutex and returns immediately. If the
+mutex is currently locked by another thread, then pthread_mutex_lock() blocks until
+the mutex is unlocked, at which point it locks the mutex and returns.
+*The pthread_mutex_unlock() function unlocks a mutex previously locked by the
+calling thread. It is an error to unlock a mutex that is not currently locked, or to
+unlock a mutex that is locked by another thread.
+If more than one other thread is waiting to acquire the mutex unlocked by a
+call to pthread_mutex_unlock(), it is indeterminate which thread will succeed in
+acquiring it.
+
+//initialize -> lock -> CS -> unlock
+
+static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+
+s = pthread_mutex_lock(&mtx);
+if(s != 0)
+    //Error handling
+
+//Critical section code
+
+s = pthread_mutex_unlock(&mtx);
+if (s != 0)
+    //Error handling
+
+
+*The pthread_mutex_trylock() function is the same as pthread_mutex_lock(), except
+that if the mutex is currently locked, pthread_mutex_trylock() fails, returning the
+error EBUSY.
+The pthread_mutex_timedlock() function is the same as pthread_mutex_lock(),
+except that the caller can specify an additional argument, abstime, that places a limit
+on the time that the thread will sleep while waiting to acquire the mutex. If the time
+interval specified by its abstime argument expires without the caller becoming the
+owner of the mutex, pthread_mutex_timedlock() returns the error ETIMEDOUT.
+
+
+*The static initializer value PTHREAD_MUTEX_INITIALIZER can be used only for initializing
+a statically allocated mutex with default attributes. In all other cases, we must
+dynamically initialize the mutex using pthread_mutex_init().
+*It is not necessary to call
+pthread_mutex_destroy() on a mutex that was statically initialized using
+PTHREAD_MUTEX_INITIALIZER.
+
+-----------------------------------------------------------------------------------
+
+//CONDITION VARIABLE
+*A condition variable has the type pthread_cond_t. As with a mutex, a condition
+variable must be initialized before use. For a statically allocated condition variable,
+this is done by assigning it the value PTHREAD_COND_INITIALIZER, as in the following
+example:
+
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+
+*The pthread_cond_signal() and pthread_cond_broadcast() functions both signal
+the condition variable specified by cond. 
+*The pthread_cond_wait() function blocks athread until the condition variable cond is signaled.
+
+
+#include <pthread.h>
+int pthread_cond_signal(pthread_cond_t *cond);
+int pthread_cond_broadcast(pthread_cond_t *cond);
+int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
+
+All return 0 on success, or a positive error number on error
+
+*The difference between pthread_cond_signal() and pthread_cond_broadcast() lies in
+what happens if multiple threads are blocked in pthread_cond_wait(). With
+pthread_cond_signal(), we are simply guaranteed that at least one of the blocked
+threads is woken up; with pthread_cond_broadcast(), all blocked threads are woken up.
+
+*A condition variable holds no state information. It is simply a mechanism for
+communicating information about the application’s state. If no thread is waiting
+on the condition variable at the time that it is signaled, then the signal is lost. A
+thread that later waits on the condition variable will unblock only when the variable
+is signaled once more.
+
+*The pthread_cond_timedwait() function is the same as pthread_cond_wait(),
+except that the abstime argument specifies an upper limit on the time that the
+thread will sleep while waiting for the condition variable to be signaled.
+{
+s = pthread_mutex_lock(&mtx);
+if (s != 0)
+    errExitEN(s, "pthread_mutex_lock");
+
+avail++; /* Let consumer know another unit is available */
+
+s = pthread_mutex_unlock(&mtx);
+if (s != 0)
+    errExitEN(s, "pthread_mutex_unlock");
+
+s = pthread_cond_signal(&cond); /* Wake sleeping consumer */
+if (s != 0)
+    errExitEN(s, "pthread_cond_signal");
+
+    --------------------------------
+
+s = pthread_mutex_lock(&mtx);
+if (s != 0)
+    errExitEN(s, "pthread_mutex_lock");
+
+while (/* Check that shared variable is not in state we want */)
+pthread_cond_wait(&cond, &mtx);
+/* Now shared variable is in desired state; do some work */
+
+s = pthread_mutex_unlock(&mtx);
+if (s != 0)
+    errExitEN(s, "pthread_mutex_unlock");
+}
+
+
+*The pthread_cond_wait() function automatically performs the mutex unlocking and
+locking required in the last two of these steps. In the third step, releasing the
+mutex and blocking on the condition variable are performed atomically.
